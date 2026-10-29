@@ -1,0 +1,68 @@
+name: Site-Release-CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate Compose configuration
+        run: docker compose --env-file .env.example config --quiet
+
+      - name: Verify model checksum
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("models/manifest.json").read_text())
+          actual = hashlib.sha256(
+              Path("models/eo_detector_fp16.engine").read_bytes()
+          ).hexdigest()
+
+          if actual != manifest.get("sha256"):
+              raise SystemExit("Model checksum verification failed")
+
+          print("Model checksum verified")
+          PY
+
+  build:
+    needs: lint_and_test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build versioned Compose images
+        run: docker compose --env-file .env.example build
+
+      - name: Verify versioned images
+        run: |
+          docker image inspect eoir-stack-inference-worker:1.4.2
+          docker image inspect eoir-stack-vision-api:1.4.2
+
+      - name: Record image metadata
+        run: |
+          docker image inspect eoir-stack-inference-worker:1.4.2 --format '{{.Id}}'
+          docker image inspect eoir-stack-vision-api:1.4.2 --format '{{.Id}}'

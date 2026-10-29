@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: c2admin
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: surveillance_c2
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U c2admin -d surveillance_c2"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - sensor_backplane
+
+  inference_worker:
+    image: eoir-stack-inference-worker:1.4.2
+    build: .
+    command: ["python", "inference_worker/worker.py"]
+    environment:
+      ENGINE_PATH: /app/models/eo_detector_fp16.engine
+      MANIFEST_PATH: /app/models/manifest.json
+      WORKER_PORT: "9000"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/status', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 2
+      start_period: 2s
+    networks:
+      - sensor_backplane
+
+  vision_api:
+    image: eoir-stack-vision-api:1.4.2
+    build: .
+    command: ["python", "vision_api/app.py"]
+    environment:
+      APP_PORT: "8000"
+      WORKER_URL: "http://inference_worker:9000"
+      DB_HOST: "postgres"
+      DB_PASSWORD: "${POSTGRES_PASSWORD}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      inference_worker:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - edge_dmz
+      - sensor_backplane
+networks:
+  edge_dmz:
+    driver: bridge
+  sensor_backplane:
+    driver: bridge
+    internal: true

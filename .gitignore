@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.env.swp
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.git/
+
+# Generated air-gapped release artifacts
+release_v*/
+release_v*.tar.gz
+
+# Local logs and temporary files
+*.log
+*.tmp
